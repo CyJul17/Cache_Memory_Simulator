@@ -29,9 +29,9 @@
 	# Final cache state:
 
 	fin_block:		.asciiz "Block: "
-	fin_Tag			.asciiz "Tag: "
+	fin_tag:		.asciiz "Tag: "
 	valid:			.asciiz "Valid\n"
-	fin_empty:			.asciiz "Empty\n"
+	fin_empty:		.asciiz "Empty\n"
 
 	# Others
 	endle:			.asciiz "/n"
@@ -140,4 +140,297 @@ read_done:
 	li $t1, 0
 	
 init_loop:
+
+	bge $t1, $s0, init_done
+	sll $t2, $t1
+	add $t3, $s4, $t2
+	sw $zero, 0($t3)				# valid[i] = 0
+	add $t3, $s4, $t2
+	li $t4, -1
+	sw $zero, 0($t3)
+	addi, $t1, $t1, 1
+	j init_loop 
+
+init_done:
+
+	# Reset the counter 
+
+	li $s5, 0						# Hit counter 
+	li $s6, 0 						# Miss counter
+
+	#computing the block_size($t8) and number of blocks($t9)
+
+	move $a0, $s1
+	jal log2_val
+	move $t8, $v0
+
+	move $a0, $s0
+	jal log2_val
+	move $t9, $v0
+
+	li $t1, 0						# i = 0
+
+sim_loop:
+
+	bge $t1, $s2, fin_sim
+
+	# Loading the address 
+	sll $t2, $t1, 2
+	add $t2, $s7, $t2
+	lw $t0, 0($t2)					# We put the address in $t0
+
+	# Block address($t3) = address >> block size
+	srlv $t3, $t0, $t8
+
+	# index = block number % number of blocks = block number & number of blocks
+	addi $t4, $s0, -1
+	and $t4, $t3, $t4 				# $t4 = index
+
+	# tag = blck number >> number of blocks 
+	srlv $t5, $t3, $t9				# $t5 = tag
+
+	# Print access info
+
+	li $v0, 4
+	la $a0, access_addr
+	syscall 
+
+	addi $a0, $t1, 1
+	li $v0, 1
+	syscall
+
+	li $v0, 4
+	la $a0, address
+	syscall
+
+	move $a0, $t0
+	li $v0, 1
+	syscall
+
+	li $v0, 4
+	la $a0, index
+	syscall
+
+	move $a0, $t4
+	li $v0, 1
+	syscall
+
+	li $v0, 4
+	la $a0, tag
+	syscall
+
+	move $a0, $t5
+	li $v0, 1
+	syscall
+
+	li $v0, 4
+	la $a0, endle
+	syscall
+
+	# Check the cache 
+	sll $t6, $t4, 2					# Byte offset
+	add $t6, $s4, $t6
+	lw $t7, 0($t6)					# loading a valid(index)
+
+	beq $t7, $zero, cache_miss
+
+	# check if tag is valid
+
+	sll $t6, $t4, 2
+	add $t6, $s3, $t6
+	lw $t7, 0($t6)					# loading the tag(index)
+
+
+	beq $t7, $t5, cache_hit			# if it maches the tag then it is hit
+	j cache_miss					# else it is miss
+
+cache_hit:
+
+	addi $s5, $s5, 1 				# increment the hit
+	li $v0, 4
+	la $a0, hit
+	syscall
+	j sim_next
+cache_miss:
+
+	addi $s6, $s6, 1					# increment the miss
+
+# Update the cache valid[index] = 1, tag[index] = tag
+
+	sll $t6, $t4, 2
+	add $t6, $s4, $t6
+	li $t7, 1
+	sw $t7, 0($t6)
+
+	sll $t6, $t4, 2
+	add $t6, $s3, $t6
+	sw $t5, 0($t6)
+
+	li $v0, 4
+	la $a0, miss
+	syscall
+
+sim_next:
+
+	addi, $t1, $t1, 1
+	j sim_loop
+sim_done:
+
+	# Print the Summary 
+	li $v0, 4
+	la $a0, sum_total
+
+	li $v0, 4
+	la $a0, endle
+	syscall 
+
+	li $v0, 4
+	la $a0, sum_hits
+	syscall 
+
+	move $a0, $s5
+	li $v0, 1
+	syscall 
+
+	li $v0, 4
+	la $a0, endle
+	syscall
+
+	li $v0, 4
+	la $a0, sum_misses
+	syscall
+
+	move $a0, $s6
+	li $v0, 1
+	syscall
+
+	li $v0, 4
+	la $a0, endle
+	syscall
+
+	li $v0, 4
+	la $a0, sum_hr				
+	syscall
+
+	mul $t0, $s5, 100				#Hit rate = (hits x 100) / total
+	div $t0, $s2
+	mflo #a0
+	li $v0, 1
+	syscall
+
+	li $v0, 4
+	la $a0, percent
+	syscall
+
+	# Print the final cache 
+	li $t1, 0
+
+print_cache:
+
+	bge $t1, $s0, print_cache_done
+
+	li $v0, 4
+	la $a0, fin_block
+	syscall 
+
+	move $a0, $t1
+	li $v0, 1
+	syscall 
+
+	li $v0, 4
+	la $a0, fin_tag
+	syscall
+
+	sll $t2, $t1, 2
+	add $t3, $s3, $t2
+	lw $a0, 0($t3)						# Tag value
+	li $v0, 1
+	syscall 
+
+	sll $t2, $t1, 2
+	add $t3, $s4, $t2
+	lw $t4, 0($t3)						#Valid 
+
+	beq $t4, $zero, print_empty 
+
+	li $v0, 4
+	la $a0, valid
+	syscall
+
+	j print_next_block
+
+print_empty:
+
+	li $v0, 4
+	la $a0, fin_empty
+	syscall
+
+print_next_block:
+
+	addi $t1, $t1, 1
+	j print_cache
+
+print_cache_done:
+
+	li $v0, 4
+	la $a0, endle
+	syscall 
+
+	li $v0, 10							#Exit the program
+	syscall
+
+
+# Error strings
+pow_err:
+
+	li $v0, 4
+	la $a0, error_pow
+	syscall 
+	j main
+max_err:
+
+	li $v0, 4
+	la $a0, error_max
+	syscall 
+	j main
+
+# Check if the powers of 2
+
+check_pow:
+
+	blez $a0, cp2_fail					# <= 0 is not valid
+	addi $t0, $a0, -1
+	and $t0, $a0, $t0
+	bne $t0, $zero, cp2_fail
+	li $v0, 1
+	jr $ra
+cp2_fail:
+
+	li $v0, 0
+	jr $ra
+
+# check for log2_val
+
+log2_val:
+
+	li $v0, 0
+	move $t0, $a0
+log2_loop:
+
+	ble $t0, 1, log2_done 
+	srl $t0, $t0, 1
+	addi $v0, $v0, 1
+	j log2_loop
+
+log2_done:
+	jr $ra
+	
+
+
+
+
+
+
+
+
 	
